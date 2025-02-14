@@ -11,7 +11,7 @@ local function checkForUpdate()
     local versionFile = LoadResourceFile(GetCurrentResourceName(), 'version.json')
 
     if not versionFile then
-        print('Couldn\'t read version file!')
+        print("Couldn't read version file!")
         return
     end
 
@@ -25,7 +25,7 @@ local function checkForUpdate()
 
     PerformHttpRequest('https://api.github.com/repos/matsn0w/MISS-ELS/releases/latest', function(status, response, headers)
         if status ~= 200 then
-            print('Something went wrong! Couldn\'t fetch latest version. Status: ' .. tostring(status))
+            print("Something went wrong! Couldn't fetch latest version. Status: " .. tostring(status))
             return
         end
 
@@ -44,18 +44,22 @@ local function checkForUpdate()
 end
 
 local function determineOS()
-    local system = nil
+    local osType = GetConvar("os_type", "")
+    
+    if osType and osType ~= "" then
+        return osType
+    end
+    
+    if os.getenv("HOME") then return "unix" end
+    if os.getenv("HOMEPATH") then return "windows" end
 
-    local unix = os.getenv('HOME')
-    local windows = os.getenv('HOMEPATH')
+    if package and package.config and package.config:sub(1,1) == "\\" then
+        return "windows"
+    else
+        return "unix"
+    end
 
-    if unix then system = 'unix' end
-    if windows then system = 'windows' end
-
-    -- this guy probably has some custom ENV var set...
-    if unix and windows then error('Couldn\'t identify the OS unambiguously.') end
-
-    return system
+    error("Couldn\'t identify the OS unambiguously.")
 end
 
 local function scanDir(folder)
@@ -78,7 +82,7 @@ local function scanDir(folder)
     end
 
     if #t == 0 then
-        error('Couldn\'t find any VCF files. Are they in the correct directory?')
+        error("Couldn\'t find any VCF files. Are they in the correct directory?")
     end
 
     pfile:close()
@@ -112,7 +116,7 @@ AddEventHandler('onResourceStart', function(name)
     systemOS = determineOS()
 
     if not systemOS then
-        error('Couldn\'t determine your OS! Are your running on steroids??')
+        error("Couldn\'t determine your OS! Are your running on steroids??")
     end
 
     for _, file in pairs(scanDir(folder)) do
@@ -120,10 +124,8 @@ AddEventHandler('onResourceStart', function(name)
 
         if data then
             if pcall(function() parseObjSet(data, file) end) then
-                -- no errors
                 print('Parsed VCF for: ' .. file)
             else
-                -- VCF is faulty, notify the user and continue
                 print('VCF file ' .. file .. ' could not be parsed: is your XML valid?')
             end
         else
