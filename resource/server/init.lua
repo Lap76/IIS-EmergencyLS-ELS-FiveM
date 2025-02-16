@@ -11,7 +11,7 @@ local function checkForUpdate()
     local versionFile = LoadResourceFile(GetCurrentResourceName(), 'version.json')
 
     if not versionFile then
-        print("Couldn't read version file!")
+        print("Couldn\'t read version file!")
         return
     end
 
@@ -25,7 +25,7 @@ local function checkForUpdate()
 
     PerformHttpRequest('https://api.github.com/repos/matsn0w/MISS-ELS/releases/latest', function(status, response, headers)
         if status ~= 200 then
-            print("Something went wrong! Couldn't fetch latest version. Status: " .. tostring(status))
+            print("Something went wrong! Couldn\'t fetch latest version. Status: " .. tostring(status))
             return
         end
 
