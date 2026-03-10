@@ -4,14 +4,16 @@ local systemOS = nil
 local function parseObjSet(data, fileName)
     local xml = SLAXML:dom(data)
 
-    if xml and xml.root and xml.root.name == 'vcfroot' then ParseVCF(xml, fileName) end
+    if xml and xml.root and xml.root.name == 'vcfroot' then
+        ParseVCF(xml, fileName)
+    end
 end
 
 local function checkForUpdate()
     local versionFile = LoadResourceFile(GetCurrentResourceName(), 'version.json')
 
     if not versionFile then
-        print("Couldn\'t read version file!")
+        print("Couldn't read version file!")
         return
     end
 
@@ -25,7 +27,7 @@ local function checkForUpdate()
 
     PerformHttpRequest('https://api.github.com/repos/matsn0w/MISS-ELS/releases/latest', function(status, response, headers)
         if status ~= 200 then
-            print("Something went wrong! Couldn\'t fetch latest version. Status: " .. tostring(status))
+            print("Something went wrong! Couldn't fetch latest version. Status: " .. tostring(status))
             return
         end
 
@@ -45,52 +47,83 @@ end
 
 local function determineOS()
     local osType = GetConvar("os_type", "")
-    
-    if osType and osType ~= "" then
-        return osType
-    end
-    
-    if os.getenv("HOME") then return "unix" end
-    if os.getenv("HOMEPATH") then return "windows" end
 
-    if package and package.config and package.config:sub(1,1) == "\\" then
-        return "windows"
-    else
+    if osType and osType ~= "" then
+        osType = osType:lower()
+
+        if osType == "windows" then
+            return "windows"
+        end
+
+        if osType == "linux" or osType == "unix" then
+            return "unix"
+        end
+    end
+
+    if os.getenv("HOME") then
         return "unix"
     end
 
-    error("Couldn\'t identify the OS unambiguously.")
+    if os.getenv("HOMEPATH") or os.getenv("USERPROFILE") then
+        return "windows"
+    end
+
+    -- veilige fallback voor FXServer
+    return "unix"
 end
 
 local function scanDir(folder)
     local pathSeparator = '/'
-    local command = 'ls -A'
+    local command = 'ls -1A'
 
     if systemOS == 'windows' then
         pathSeparator = '\\'
-        command = 'dir /R /B'
+        command = 'dir /B'
     end
 
     local resourcePath = GetResourcePath(GetCurrentResourceName())
-    local directory = resourcePath .. pathSeparator .. folder
-    local i, t, popen = 0, {}, io.popen
-    local pfile = popen(command .. ' "' .. directory .. '"')
-
-    for filename in pfile:lines() do
-        i = i + 1
-        t[i] = filename
+    if not resourcePath then
+        error('Could not resolve resource path.')
     end
 
-    if #t == 0 then
-        error("Couldn\'t find any VCF files. Are they in the correct directory?")
+    local directory = resourcePath .. pathSeparator .. folder
+    local t = {}
+    local pfile = io.popen(command .. ' "' .. directory .. '"')
+
+    if not pfile then
+        error('Could not open directory listing for: ' .. directory)
+    end
+
+    for filename in pfile:lines() do
+        if filename and filename ~= '.' and filename ~= '..' then
+            t[#t + 1] = filename
+        end
     end
 
     pfile:close()
+
+    if #t == 0 then
+        error("Couldn't find any VCF files. Are they in the correct directory?")
+    end
+
     return t
 end
 
 local function loadFile(file)
     return LoadResourceFile(GetCurrentResourceName(), file)
+end
+
+local function sendELSData(target)
+    if not target then
+        return
+    end
+
+    if type(kjxmlData) ~= "table" then
+        print("^1MISS-ELS: kjxmlData is not a table, aborting sync.^7")
+        return
+    end
+
+    TriggerClientEvent('kjELS:sendELSInformation', target, kjxmlData)
 end
 
 AddEventHandler('onResourceStart', function(name)
@@ -112,34 +145,46 @@ AddEventHandler('onResourceStart', function(name)
 
     local folder = 'xmlFiles'
 
-    -- determine the server OS
     systemOS = determineOS()
-
-    if not systemOS then
-        error("Couldn\'t determine your OS! Are your running on steroids??")
-    end
 
     for _, file in pairs(scanDir(folder)) do
         local data = loadFile(folder .. '/' .. file)
 
         if data then
-            if pcall(function() parseObjSet(data, file) end) then
+            local ok, err = pcall(function()
+                parseObjSet(data, file)
+            end)
+
+            if ok then
                 print('Parsed VCF for: ' .. file)
             else
-                print('VCF file ' .. file .. ' could not be parsed: is your XML valid?')
+                print('VCF file ' .. file .. ' could not be parsed: ' .. tostring(err))
             end
         else
             print('VCF file ' .. file .. ' not found: does the file exist?')
         end
     end
 
-    -- send the ELS data to all clients
-    TriggerClientEvent('kjELS:sendELSInformation', -1, kjxmlData)
+    -- Stuur data alleen naar spelers die al online zijn
+    local players = GetPlayers()
+    if players and #players > 0 then
+        for _, playerId in ipairs(players) do
+            sendELSData(tonumber(playerId))
+        end
+    end
 end)
 
 RegisterServerEvent('kjELS:requestELSInformation')
 AddEventHandler('kjELS:requestELSInformation', function()
-    TriggerClientEvent('kjELS:sendELSInformation', source, kjxmlData)
+    sendELSData(source)
+end)
+
+AddEventHandler('playerJoining', function()
+    local src = source
+    CreateThread(function()
+        Wait(2000)
+        sendELSData(src)
+    end)
 end)
 
 RegisterNetEvent('baseevents:enteredVehicle')
