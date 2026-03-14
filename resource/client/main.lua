@@ -211,8 +211,13 @@ local function HandleSiren(siren)
             end
         end
 
-        -- turn the (next) siren on
-        TriggerServerEvent('kjELS:setSirenState', siren or 1)
+        local desiredSiren = siren or 1
+        TriggerServerEvent('kjELS:setSirenState', desiredSiren)
+
+        local netId = VehToNet(vehicle)
+        if netId and netId ~= 0 then
+            TriggerEvent('kjELS:updateSiren', netId, desiredSiren)
+        end
 
         if Config.HornBlip then
             SoundVehicleHornThisFrame(vehicle)
@@ -220,6 +225,11 @@ local function HandleSiren(siren)
     elseif sirenOn or not siren then
         -- turn the siren off
         TriggerServerEvent('kjELS:setSirenState', 0)
+
+        local netId = VehToNet(vehicle)
+        if netId and netId ~= 0 then
+            TriggerEvent('kjELS:updateSiren', netId, 0)
+        end
 
         if Config.HornBlip then
             Wait(100)

@@ -1,16 +1,32 @@
-local function GetPlayerVehicleNetId(src)
+local function GetPlayerVehicle(src)
     local ped = GetPlayerPed(src)
     if not ped or ped == 0 then
         return nil
     end
 
-    local vehicle = GetVehiclePedIsUsing(ped)
+    local vehicle = GetVehiclePedIsIn(ped, false)
+
     if not vehicle or vehicle == 0 then
+        vehicle = GetVehiclePedIsUsing(ped)
+    end
+
+    if not vehicle or vehicle == 0 then
+        return nil
+    end
+
+    return vehicle
+end
+
+local function GetPlayerVehicleNetId(src)
+    local vehicle = GetPlayerVehicle(src)
+    if not vehicle then
+        print(('[MISS-ELS] server: no vehicle found for player %s'):format(tostring(src)))
         return nil
     end
 
     local netId = NetworkGetNetworkIdFromEntity(vehicle)
     if not netId or netId == 0 then
+        print(('[MISS-ELS] server: no netId for player %s vehicle %s'):format(tostring(src), tostring(vehicle)))
         return nil
     end
 
@@ -19,7 +35,9 @@ end
 
 RegisterServerEvent('kjELS:setSirenState')
 AddEventHandler('kjELS:setSirenState', function(state)
-    local netId = GetPlayerVehicleNetId(source)
+    local src = source
+    local netId = GetPlayerVehicleNetId(src)
+
     if not netId then
         return
     end
@@ -29,7 +47,9 @@ end)
 
 RegisterServerEvent('kjELS:toggleHorn')
 AddEventHandler('kjELS:toggleHorn', function(state)
-    local netId = GetPlayerVehicleNetId(source)
+    local src = source
+    local netId = GetPlayerVehicleNetId(src)
+
     if not netId then
         return
     end

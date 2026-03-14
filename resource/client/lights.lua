@@ -405,18 +405,26 @@ end)
 
 RegisterNetEvent('kjELS:updateSiren')
 AddEventHandler('kjELS:updateSiren', function(netId, status)
-    local vehicle = GetVehicleFromNetId(netId)
-    if not vehicle then
+    if not netId then
+        print('[MISS-ELS] updateSiren: missing netId')
+        return
+    end
+
+    local vehicle = NetToVeh(netId)
+    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
+        print(('[MISS-ELS] updateSiren: vehicle not in scope for netId %s'):format(tostring(netId)))
         return
     end
 
     local vehicleData = GetVehicleVCFData(vehicle)
     if not vehicleData then
+        print(('[MISS-ELS] updateSiren: no VCF data for vehicle %s'):format(tostring(vehicle)))
         return
     end
 
     local sounds = vehicleData.sounds
     if not sounds then
+        print(('[MISS-ELS] updateSiren: no sounds table for vehicle %s'):format(tostring(vehicle)))
         return
     end
 
@@ -426,6 +434,7 @@ AddEventHandler('kjELS:updateSiren', function(netId, status)
 
     local ELSvehicle = kjEnabledVehicles[vehicle]
     if not ELSvehicle then
+        print(('[MISS-ELS] updateSiren: no ELS state for vehicle %s'):format(tostring(vehicle)))
         return
     end
 
@@ -442,6 +451,7 @@ AddEventHandler('kjELS:updateSiren', function(netId, status)
     if TableHasValue(statuses, status) then
         local tone = sounds['srnTone' .. status]
         if not tone then
+            print(('[MISS-ELS] updateSiren: missing srnTone%s'):format(tostring(status)))
             return
         end
 
@@ -452,7 +462,8 @@ AddEventHandler('kjELS:updateSiren', function(netId, status)
             tone.audioString,
             vehicle,
             tone.soundSet or 0,
-            0, 0
+            0,
+            0
         )
     end
 
