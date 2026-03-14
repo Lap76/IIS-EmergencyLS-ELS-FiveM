@@ -2,6 +2,27 @@ local function IsValidVehicle(vehicle)
     return vehicle and vehicle ~= 0 and DoesEntityExist(vehicle)
 end
 
+local function GetVehicleFromNetId(netId)
+    if not netId then
+        return nil
+    end
+
+    if not NetworkDoesNetworkIdExist(netId) then
+        return nil
+    end
+
+    if not NetworkDoesEntityExistWithNetworkId(netId) then
+        return nil
+    end
+
+    local vehicle = NetToVeh(netId)
+    if not IsValidVehicle(vehicle) then
+        return nil
+    end
+
+    return vehicle
+end
+
 local function RemoveVehicleFromTable(vehicle)
     if vehicle and kjEnabledVehicles[vehicle] then
         kjEnabledVehicles[vehicle] = nil
@@ -336,36 +357,19 @@ AddEventHandler('kjELS:toggleLights', function(vehicle, stage, toggle)
 end)
 
 RegisterNetEvent('kjELS:updateHorn')
-AddEventHandler('kjELS:updateHorn', function(playerid, status)
-    local ped = GetPlayerPed(GetPlayerFromServerId(playerid))
-    if not ped or ped == 0 then
-        CancelEvent()
-        return
-    end
-
-    local vehicle = GetVehiclePedIsUsing(ped)
-    if not IsValidVehicle(vehicle) then
-        RemoveVehicleFromTable(vehicle)
-        CancelEvent()
+AddEventHandler('kjELS:updateHorn', function(netId, status)
+    local vehicle = GetVehicleFromNetId(netId)
+    if not vehicle then
         return
     end
 
     local vehicleData = GetVehicleVCFData(vehicle)
     if not vehicleData then
-        print(('[MISS-ELS] updateHorn: no VCF data for vehicle %s / hash %s'):format(
-            tostring(vehicle),
-            tostring(GetCarHash(vehicle))
-        ))
-        CancelEvent()
         return
     end
 
     local sounds = vehicleData.sounds
     if not sounds or not sounds.mainHorn then
-        print(('[MISS-ELS] updateHorn: missing mainHorn for hash %s'):format(
-            tostring(GetCarHash(vehicle))
-        ))
-        CancelEvent()
         return
     end
 
@@ -375,7 +379,6 @@ AddEventHandler('kjELS:updateHorn', function(playerid, status)
 
     local ELSvehicle = kjEnabledVehicles[vehicle]
     if not ELSvehicle then
-        CancelEvent()
         return
     end
 
@@ -401,36 +404,19 @@ AddEventHandler('kjELS:updateHorn', function(playerid, status)
 end)
 
 RegisterNetEvent('kjELS:updateSiren')
-AddEventHandler('kjELS:updateSiren', function(playerid, status)
-    local ped = GetPlayerPed(GetPlayerFromServerId(playerid))
-    if not ped or ped == 0 then
-        CancelEvent()
-        return
-    end
-
-    local vehicle = GetVehiclePedIsUsing(ped)
-    if not IsValidVehicle(vehicle) then
-        RemoveVehicleFromTable(vehicle)
-        CancelEvent()
+AddEventHandler('kjELS:updateSiren', function(netId, status)
+    local vehicle = GetVehicleFromNetId(netId)
+    if not vehicle then
         return
     end
 
     local vehicleData = GetVehicleVCFData(vehicle)
     if not vehicleData then
-        print(('[MISS-ELS] updateSiren: no VCF data for vehicle %s / hash %s'):format(
-            tostring(vehicle),
-            tostring(GetCarHash(vehicle))
-        ))
-        CancelEvent()
         return
     end
 
     local sounds = vehicleData.sounds
     if not sounds then
-        print(('[MISS-ELS] updateSiren: missing sounds table for hash %s'):format(
-            tostring(GetCarHash(vehicle))
-        ))
-        CancelEvent()
         return
     end
 
@@ -440,7 +426,6 @@ AddEventHandler('kjELS:updateSiren', function(playerid, status)
 
     local ELSvehicle = kjEnabledVehicles[vehicle]
     if not ELSvehicle then
-        CancelEvent()
         return
     end
 
@@ -456,13 +441,7 @@ AddEventHandler('kjELS:updateSiren', function(playerid, status)
 
     if TableHasValue(statuses, status) then
         local tone = sounds['srnTone' .. status]
-
         if not tone then
-            print(('[MISS-ELS] updateSiren: missing srnTone%s for hash %s'):format(
-                tostring(status),
-                tostring(GetCarHash(vehicle))
-            ))
-            CancelEvent()
             return
         end
 

@@ -5,22 +5,73 @@ Indicators = {
     hazard = false
 }
 
+local function IsValidVehicle(vehicle)
+    return vehicle and vehicle ~= 0 and DoesEntityExist(vehicle)
+end
+
+local function GetVehicleVCFData(vehicle)
+    if not IsValidVehicle(vehicle) then
+        return nil
+    end
+
+    if not kjxmlData then
+        return nil
+    end
+
+    local carHash = GetCarHash(vehicle)
+    if not carHash then
+        return nil
+    end
+
+    return kjxmlData[carHash]
+end
+
+local function GetVehicleSounds(vehicle)
+    local vcf = GetVehicleVCFData(vehicle)
+    if not vcf then
+        return nil
+    end
+
+    return vcf.sounds
+end
+
+local function EnsureVehicleState(vehicle)
+    if not IsValidVehicle(vehicle) then
+        return nil
+    end
+
+    if kjEnabledVehicles[vehicle] == nil then
+        AddVehicleToTable(vehicle)
+    end
+
+    return kjEnabledVehicles[vehicle]
+end
+
 local function HandleIndicators(type)
-    if not type then return end
+    if not type then
+        return
+    end
 
     local ped = PlayerPedId()
     local vehicle = GetVehiclePedIsUsing(ped)
 
     -- only the driver can control the indicators
-    if not vehicle or not PedIsDriver(vehicle) then return end
+    if not IsValidVehicle(vehicle) or not PedIsDriver(vehicle) then
+        return
+    end
 
     -- disable all other indicators
-    if type ~= 'left' and Indicators.left then Indicators.left = false
-    elseif type ~= 'right' and Indicators.right then Indicators.right = false
-    elseif type ~= 'hazard' and Indicators.hazard then Indicators.hazard = false end
+    if type ~= 'left' and Indicators.left then
+        Indicators.left = false
+    elseif type ~= 'right' and Indicators.right then
+        Indicators.right = false
+    elseif type ~= 'hazard' and Indicators.hazard then
+        Indicators.hazard = false
+    end
 
     -- toggle the indicator
     Indicators[type] = not Indicators[type]
+
     TriggerServerEvent('kjELS:sv_Indicator', type, Indicators[type])
 
     -- play blip sound
@@ -29,15 +80,15 @@ end
 
 -- indicators are allowed on all vehicles
 if Config.Indicators then
-    RegisterCommand('MISS-ELS:toggle-indicator-hazard', function ()
+    RegisterCommand('MISS-ELS:toggle-indicator-hazard', function()
         HandleIndicators('hazard')
     end)
 
-    RegisterCommand('MISS-ELS:toggle-indicator-left', function ()
+    RegisterCommand('MISS-ELS:toggle-indicator-left', function()
         HandleIndicators('left')
     end)
 
-    RegisterCommand('MISS-ELS:toggle-indicator-right', function ()
+    RegisterCommand('MISS-ELS:toggle-indicator-right', function()
         HandleIndicators('right')
     end)
 end
@@ -47,13 +98,21 @@ local function HandleHorn()
     local vehicle = GetVehiclePedIsUsing(ped)
 
     -- only the driver can control the horn
-    if not vehicle or not PedIsDriver(vehicle) then return end
+    if not IsValidVehicle(vehicle) or not PedIsDriver(vehicle) then
+        return
+    end
 
-    -- get the horn info from the VCF
-    local mainHorn = kjxmlData[GetCarHash(vehicle)].sounds.mainHorn
+    local sounds = GetVehicleSounds(vehicle)
+    if not sounds or not sounds.mainHorn then
+        return
+    end
+
+    local mainHorn = sounds.mainHorn
 
     -- the custom horn is disabled
-    if not mainHorn or not mainHorn.allowUse then return end
+    if not mainHorn.allowUse then
+        return
+    end
 
     -- disable default honk sound (INPUT_VEH_HORN)
     DisableControlAction(0, 86, true)
@@ -70,7 +129,10 @@ local function HandleHorn()
 end
 
 local function ToggleLights(vehicle, stage, toggle)
-    local ELSvehicle = kjEnabledVehicles[vehicle]
+    local ELSvehicle = EnsureVehicleState(vehicle)
+    if not ELSvehicle then
+        return
+    end
 
     -- turn light stage on or off based on the toggle
     TriggerEvent('kjELS:toggleLights', vehicle, stage, toggle)
@@ -85,16 +147,31 @@ local function HandleLightStage(stage)
     local ped = PlayerPedId()
     local vehicle = GetVehiclePedIsUsing(ped)
 
-    if kjEnabledVehicles[vehicle][stage] then
+    if not IsValidVehicle(vehicle) then
+        return
+    end
+
+    local ELSvehicle = EnsureVehicleState(vehicle)
+    if not ELSvehicle then
+        return
+    end
+
+    local sounds = GetVehicleSounds(vehicle)
+
+    if ELSvehicle[stage] then
         -- turn lights off
         ToggleLights(vehicle, stage, false)
     else
         -- turn lights on
         ToggleLights(vehicle, stage, true)
 
-        if stage == 'primary' and kjxmlData[GetCarHash(vehicle)].sounds.nineMode then
+        if stage == 'primary' and sounds and sounds.nineMode then
             -- play 999 sound effect
-            SendNUIMessage({ transactionType = 'playSound', transactionFile = '999mode', transactionVolume = 1.0 })
+            SendNUIMessage({
+                transactionType = 'playSound',
+                transactionFile = '999mode',
+                transactionVolume = 1.0
+            })
         end
     end
 end
@@ -103,15 +180,36 @@ local function HandleSiren(siren)
     local ped = PlayerPedId()
     local vehicle = GetVehiclePedIsUsing(ped)
 
-    -- siren only works in the primary light stage
-    if not kjEnabledVehicles[vehicle].primary and not Config.SirenAlwaysAllowed then return end
+    if not IsValidVehicle(vehicle) then
+        return
+    end
 
-    local currentSiren = kjEnabledVehicles[vehicle].siren
+    local ELSvehicle = EnsureVehicleState(vehicle)
+    if not ELSvehicle then
+        return
+    end
+
+    -- siren only works in the primary light stage
+    if not ELSvehicle.primary and not Config.SirenAlwaysAllowed then
+        return
+    end
+
+    local sounds = GetVehicleSounds(vehicle)
+    if not sounds then
+        return
+    end
+
+    local currentSiren = ELSvehicle.siren
     local sirenOn = currentSiren ~= 0
 
     if (not sirenOn) or (sirenOn and siren and siren ~= currentSiren) then
         -- siren only works if it is enabled
-        if siren and not kjxmlData[GetCarHash(vehicle)].sounds['srnTone' .. siren].allowUse then return end
+        if siren then
+            local tone = sounds['srnTone' .. siren]
+            if not tone or not tone.allowUse then
+                return
+            end
+        end
 
         -- turn the (next) siren on
         TriggerServerEvent('kjELS:setSirenState', siren or 1)
@@ -132,7 +230,11 @@ local function HandleSiren(siren)
     end
 
     if Config.Beeps then
-        SendNUIMessage({ transactionType = 'playSound', transactionFile = 'Beep', transactionVolume = 0.025 })
+        SendNUIMessage({
+            transactionType = 'playSound',
+            transactionFile = 'Beep',
+            transactionVolume = 0.025
+        })
     end
 end
 
@@ -140,26 +242,52 @@ local function NextSiren()
     local ped = PlayerPedId()
     local vehicle = GetVehiclePedIsUsing(ped)
 
+    if not IsValidVehicle(vehicle) then
+        return
+    end
+
+    local ELSvehicle = EnsureVehicleState(vehicle)
+    if not ELSvehicle then
+        return
+    end
+
+    local sounds = GetVehicleSounds(vehicle)
+    if not sounds then
+        return
+    end
+
     -- get the next siren
-    local next = kjEnabledVehicles[vehicle].siren + 1
+    local next = ELSvehicle.siren + 1
 
     -- keep track of the amount of tries, there are a total of 4 sirens
     local max = 4
     local count = 0
 
-    -- go back to 1
-    if next > 4 then next = 1 end
+    -- go back to 1 if next > 4
+    if next > 4 then
+        next = 1
+    end
 
     -- check if the next siren is allowed
-    while not kjxmlData[GetCarHash(vehicle)].sounds['srnTone' .. next].allowUse do
-        -- check if the maximum is reached, not even one siren is allowed!
-        if count == max then return end
+    while true do
+        local tone = sounds['srnTone' .. next]
+
+        if tone and tone.allowUse then
+            break
+        end
+
+        -- check if the maximum is reached, not even one siren is allowed
+        if count == max then
+            return
+        end
 
         -- try the next siren
         next = next + 1
 
-        -- go back to 1
-        if next > 4 then next = 1 end
+        -- go back to 1 if next > 4
+        if next > 4 then
+            next = 1
+        end
 
         count = count + 1
     end
@@ -168,56 +296,74 @@ local function NextSiren()
     HandleSiren(next)
 end
 
-RegisterCommand('MISS-ELS:toggle-stage-primary', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-stage-primary', function()
+    if not CanControlELS() then
+        return
+    end
 
     HandleLightStage('primary')
 end)
 
-RegisterCommand('MISS-ELS:toggle-stage-secondary', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-stage-secondary', function()
+    if not CanControlELS() then
+        return
+    end
 
     HandleLightStage('secondary')
 end)
 
-RegisterCommand('MISS-ELS:toggle-stage-warning', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-stage-warning', function()
+    if not CanControlELS() then
+        return
+    end
 
     HandleLightStage('warning')
 end)
 
-RegisterCommand('MISS-ELS:toggle-siren', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-siren', function()
+    if not CanControlELS() then
+        return
+    end
 
     HandleSiren()
 end)
 
-RegisterCommand('MISS-ELS:toggle-siren-next', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-siren-next', function()
+    if not CanControlELS() then
+        return
+    end
 
     NextSiren()
 end)
 
-RegisterCommand('MISS-ELS:toggle-siren-one', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-siren-one', function()
+    if not CanControlELS() then
+        return
+    end
 
     HandleSiren(1)
 end)
 
-RegisterCommand('MISS-ELS:toggle-siren-two', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-siren-two', function()
+    if not CanControlELS() then
+        return
+    end
 
     HandleSiren(2)
 end)
 
-RegisterCommand('MISS-ELS:toggle-siren-three', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-siren-three', function()
+    if not CanControlELS() then
+        return
+    end
 
     HandleSiren(3)
 end)
 
-RegisterCommand('MISS-ELS:toggle-siren-four', function ()
-    if not CanControlELS() then return end
+RegisterCommand('MISS-ELS:toggle-siren-four', function()
+    if not CanControlELS() then
+        return
+    end
 
     HandleSiren(4)
 end)
@@ -240,17 +386,21 @@ AddEventHandler('onClientResourceStart', function(name)
                 TriggerServerEvent('kjELS:requestELSInformation')
 
                 -- wait for the data to load
-                while not kjxmlData do Citizen.Wait(0) end
+                while not kjxmlData do
+                    Citizen.Wait(0)
+                end
             end
 
             -- wait untill the player is in a vehicle
-            while not IsPedInAnyVehicle(PlayerPedId(), false) do Citizen.Wait(0) end
+            while not IsPedInAnyVehicle(PlayerPedId(), false) do
+                Citizen.Wait(0)
+            end
 
             local ped = PlayerPedId()
             local vehicle = GetVehiclePedIsUsing(ped)
 
             -- only run if player is in an ELS enabled vehicle and can control the sirens
-            if IsELSVehicle(vehicle) and CanControlSirens(vehicle) then
+            if IsValidVehicle(vehicle) and IsELSVehicle(vehicle) and CanControlSirens(vehicle) then
                 -- conflicting controls
                 local controls = {
                     { 0, 58 }, -- INPUT_THROW_GRENADE
@@ -274,16 +424,19 @@ AddEventHandler('onClientResourceStart', function(name)
                 SetVehicleAutoRepairDisabled(vehicle, true)
 
                 -- add vehicle to ELS table if not listed already
-                if kjEnabledVehicles[vehicle] == nil then AddVehicleToTable(vehicle) end
+                EnsureVehicleState(vehicle)
 
                 -- handle the horn
                 HandleHorn()
 
                 if not IsUsingKeyboard(0) then
                     -- on controller
-                    if IsDisabledControlJustReleased(1, 85 --[[ DPAD_LEFT ]]) then HandleLightStage('primary')
-                    elseif IsDisabledControlJustReleased(1, 170 --[[ B ]]) then NextSiren()
-                    elseif IsDisabledControlJustReleased(1, 173 --[[ DPAD_DOWN ]]) then HandleSiren()
+                    if IsDisabledControlJustReleased(1, 85 --[[ DPAD_LEFT ]]) then
+                        HandleLightStage('primary')
+                    elseif IsDisabledControlJustReleased(1, 170 --[[ B ]]) then
+                        NextSiren()
+                    elseif IsDisabledControlJustReleased(1, 173 --[[ DPAD_DOWN ]]) then
+                        HandleSiren()
                     end
                 end
             end
