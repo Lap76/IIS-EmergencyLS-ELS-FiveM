@@ -11,12 +11,56 @@ local function ToggleMisc(vehicle, misc, toggle)
     SetVehicleMod(vehicle, misc, toggle, false)
 end
 
-local function SetLightStage(vehicle, stage, toggle)
-    local ELSvehicle = kjEnabledVehicles[vehicle]
-    local VCFdata = kjxmlData[GetCarHash(vehicle)]
+local function GetVehicleVCFData(vehicle)
+    if not vehicle or vehicle == 0 then
+        return nil
+    end
 
-    -- get the pattern data
-    local patternData = VCFdata.patterns[ConvertStageToPattern(stage)]
+    if not kjxmlData then
+        return nil
+    end
+
+    local carHash = GetCarHash(vehicle)
+    if not carHash then
+        return nil
+    end
+
+    return kjxmlData[carHash]
+end
+
+local function SetLightStage(vehicle, stage, toggle)
+    if not vehicle or vehicle == 0 then
+        return
+    end
+
+    if kjEnabledVehicles[vehicle] == nil then
+        AddVehicleToTable(vehicle)
+    end
+
+    local ELSvehicle = kjEnabledVehicles[vehicle]
+    if not ELSvehicle then
+        return
+    end
+
+    local VCFdata = GetVehicleVCFData(vehicle)
+    if not VCFdata then
+        print(('[MISS-ELS] SetLightStage: no VCF data for vehicle %s / hash %s'):format(
+            tostring(vehicle),
+            tostring(GetCarHash(vehicle))
+        ))
+        return
+    end
+
+    local patternKey = ConvertStageToPattern(stage)
+    local patternData = VCFdata.patterns and VCFdata.patterns[patternKey]
+
+    if not patternData then
+        print(('[MISS-ELS] SetLightStage: no pattern data for stage %s on %s'):format(
+            tostring(stage),
+            tostring(GetCarHash(vehicle))
+        ))
+        return
+    end
 
     -- reset all extras and miscs
     TriggerEvent('kjELS:resetExtras', vehicle)
@@ -30,13 +74,15 @@ local function SetLightStage(vehicle, stage, toggle)
         SetVehicleSiren(vehicle, toggle)
     end
 
-    if (patternData.flashHighBeam) then
+    if patternData.flashHighBeam then
         Citizen.CreateThread(function()
             -- get the current vehicle lights state
             local _, lightsOn, highbeamsOn = GetVehicleLightsState(vehicle)
 
             -- turn the lights on to avoid flashing tail lights
-            if lightsOn == 0 then SetVehicleLights(vehicle, 2) end
+            if lightsOn == 0 then
+                SetVehicleLights(vehicle, 2)
+            end
 
             -- flash the high beam
             while ELSvehicle[stage] do
@@ -56,8 +102,12 @@ local function SetLightStage(vehicle, stage, toggle)
             end
 
             -- reset initial vehicle state
-            if lightsOn == 0 then SetVehicleLights(vehicle, 0) end
-            if highbeamsOn == 1 then SetVehicleFullbeam(vehicle, true) end
+            if lightsOn == 0 then
+                SetVehicleLights(vehicle, 0)
+            end
+            if highbeamsOn == 1 then
+                SetVehicleFullbeam(vehicle, true)
+            end
 
             Wait(0)
         end)
@@ -67,7 +117,11 @@ local function SetLightStage(vehicle, stage, toggle)
         Citizen.CreateThread(function()
             while ELSvehicle[stage] do
                 -- play warning sound
-                SendNUIMessage({ transactionType = 'playSound', transactionFile = 'WarningBeep', transactionVolume = 0.2 })
+                SendNUIMessage({
+                    transactionType = 'playSound',
+                    transactionFile = 'WarningBeep',
+                    transactionVolume = 0.2
+                })
 
                 -- this should be equal to the length of the audio file
                 Citizen.Wait((Config.WarningBeepDuration or 0) * 1000)
@@ -133,16 +187,27 @@ local function SetLightStage(vehicle, stage, toggle)
 end
 
 local function StaticsIncludesExtra(model, extra)
-    return kjxmlData[model].statics.extras[extra] ~= nil
+    return kjxmlData[model]
+        and kjxmlData[model].statics
+        and kjxmlData[model].statics.extras
+        and kjxmlData[model].statics.extras[extra] ~= nil
 end
 
 local function StaticsIncludesMisc(model, misc)
-    return kjxmlData[model].statics.miscs[misc] ~= nil
+    return kjxmlData[model]
+        and kjxmlData[model].statics
+        and kjxmlData[model].statics.miscs
+        and kjxmlData[model].statics.miscs[misc] ~= nil
 end
 
 RegisterNetEvent('kjELS:resetExtras')
 AddEventHandler('kjELS:resetExtras', function(vehicle)
-    if not vehicle then
+    if not vehicle or vehicle == 0 then
+        CancelEvent()
+        return
+    end
+
+    if not kjxmlData then
         CancelEvent()
         return
     end
@@ -150,6 +215,11 @@ AddEventHandler('kjELS:resetExtras', function(vehicle)
     local model = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle))
 
     if not SetContains(kjxmlData, model) then
+        CancelEvent()
+        return
+    end
+
+    if not kjxmlData[model] or not kjxmlData[model].extras then
         CancelEvent()
         return
     end
@@ -169,7 +239,12 @@ end)
 
 RegisterNetEvent('kjELS:resetMiscs')
 AddEventHandler('kjELS:resetMiscs', function(vehicle)
-    if not vehicle then
+    if not vehicle or vehicle == 0 then
+        CancelEvent()
+        return
+    end
+
+    if not kjxmlData then
         CancelEvent()
         return
     end
@@ -181,10 +256,15 @@ AddEventHandler('kjELS:resetMiscs', function(vehicle)
         return
     end
 
+    if not kjxmlData[model] or not kjxmlData[model].miscs then
+        CancelEvent()
+        return
+    end
+
     -- loop through all miscs
     for misc, info in pairs(kjxmlData[model].miscs) do
         -- check if we can control this misc
-        if info.enabled == true and not StaticsIncludesMisc(model, extra) then
+        if info.enabled == true and not StaticsIncludesMisc(model, misc) then
             -- disable the misc
             ToggleMisc(vehicle, misc, false)
         end
@@ -193,12 +273,14 @@ end)
 
 RegisterNetEvent('kjELS:toggleLights')
 AddEventHandler('kjELS:toggleLights', function(vehicle, stage, toggle)
-    if not vehicle then
+    if not vehicle or vehicle == 0 then
         CancelEvent()
         return
     end
 
-    if kjEnabledVehicles[vehicle] == nil then AddVehicleToTable(vehicle) end
+    if kjEnabledVehicles[vehicle] == nil then
+        AddVehicleToTable(vehicle)
+    end
 
     -- set the light stage
     SetLightStage(vehicle, stage, toggle)
@@ -206,22 +288,49 @@ end)
 
 RegisterNetEvent('kjELS:updateHorn')
 AddEventHandler('kjELS:updateHorn', function(playerid, status)
-    local vehicle = GetVehiclePedIsUsing(GetPlayerPed(GetPlayerFromServerId(playerid)))
-
-    if not vehicle then
+    local ped = GetPlayerPed(GetPlayerFromServerId(playerid))
+    if not ped or ped == 0 then
         CancelEvent()
         return
     end
 
-    if kjEnabledVehicles[vehicle] == nil then AddVehicleToTable(vehicle) end
+    local vehicle = GetVehiclePedIsUsing(ped)
+    if not vehicle or vehicle == 0 then
+        CancelEvent()
+        return
+    end
+
+    local vehicleData = GetVehicleVCFData(vehicle)
+    if not vehicleData then
+        print(('[MISS-ELS] updateHorn: no VCF data for vehicle %s / hash %s'):format(
+            tostring(vehicle),
+            tostring(GetCarHash(vehicle))
+        ))
+        CancelEvent()
+        return
+    end
+
+    local sounds = vehicleData.sounds
+    if not sounds or not sounds.mainHorn then
+        print(('[MISS-ELS] updateHorn: missing mainHorn for hash %s'):format(
+            tostring(GetCarHash(vehicle))
+        ))
+        CancelEvent()
+        return
+    end
+
+    if kjEnabledVehicles[vehicle] == nil then
+        AddVehicleToTable(vehicle)
+    end
 
     local ELSvehicle = kjEnabledVehicles[vehicle]
+    if not ELSvehicle then
+        CancelEvent()
+        return
+    end
 
     -- toggle the horn state (true = on, false = off)
     ELSvehicle.horn = status
-
-    -- get the sounds from the VCF
-    local sounds = kjxmlData[GetCarHash(vehicle)].sounds
 
     -- horn is honking
     if ELSvehicle.sound_id ~= nil then
@@ -251,11 +360,46 @@ end)
 -- run on kjELS:setSirenState
 RegisterNetEvent('kjELS:updateSiren')
 AddEventHandler('kjELS:updateSiren', function(playerid, status)
-    local vehicle = GetVehiclePedIsUsing(GetPlayerPed(GetPlayerFromServerId(playerid)))
+    local ped = GetPlayerPed(GetPlayerFromServerId(playerid))
+    if not ped or ped == 0 then
+        CancelEvent()
+        return
+    end
 
-    if kjEnabledVehicles[vehicle] == nil then AddVehicleToTable(vehicle) end
+    local vehicle = GetVehiclePedIsUsing(ped)
+    if not vehicle or vehicle == 0 then
+        CancelEvent()
+        return
+    end
+
+    local vehicleData = GetVehicleVCFData(vehicle)
+    if not vehicleData then
+        print(('[MISS-ELS] updateSiren: no VCF data for vehicle %s / hash %s'):format(
+            tostring(vehicle),
+            tostring(GetCarHash(vehicle))
+        ))
+        CancelEvent()
+        return
+    end
+
+    local sounds = vehicleData.sounds
+    if not sounds then
+        print(('[MISS-ELS] updateSiren: missing sounds table for hash %s'):format(
+            tostring(GetCarHash(vehicle))
+        ))
+        CancelEvent()
+        return
+    end
+
+    if kjEnabledVehicles[vehicle] == nil then
+        AddVehicleToTable(vehicle)
+    end
 
     local ELSvehicle = kjEnabledVehicles[vehicle]
+    if not ELSvehicle then
+        CancelEvent()
+        return
+    end
 
     -- toggle the siren state (true = on, false = off)
     ELSvehicle.siren = status
@@ -269,22 +413,30 @@ AddEventHandler('kjELS:updateSiren', function(playerid, status)
         ELSvehicle.sound = nil
     end
 
-    -- get the sounds from the VCF
-    local sounds = kjxmlData[GetCarHash(vehicle)].sounds
-
     -- there are 4 possible siren sounds
     local statuses = {1, 2, 3, 4}
 
     if TableHasValue(statuses, status) then
+        local tone = sounds['srnTone' .. status]
+
+        if not tone then
+            print(('[MISS-ELS] updateSiren: missing srnTone%s for hash %s'):format(
+                tostring(status),
+                tostring(GetCarHash(vehicle))
+            ))
+            CancelEvent()
+            return
+        end
+
         -- get a fresh sound id
         ELSvehicle.sound = GetSoundId()
 
         -- play the siren sound
         PlaySoundFromEntity(
             ELSvehicle.sound,
-            sounds['srnTone' .. status].audioString,
+            tone.audioString,
             vehicle,
-            sounds['srnTone' .. status].soundSet,
+            tone.soundSet or 0,
             0, 0
         )
     end
@@ -296,6 +448,9 @@ end)
 RegisterNetEvent('kjELS:updateIndicators')
 AddEventHandler('kjELS:updateIndicators', function(dir, toggle)
     local vehicle = GetVehiclePedIsIn(PlayerPedId())
+    if not vehicle or vehicle == 0 then
+        return
+    end
 
     -- disable all indicators first
     SetVehicleIndicatorLights(vehicle, 1, false) -- 1 is left
@@ -312,8 +467,11 @@ AddEventHandler('kjELS:updateIndicators', function(dir, toggle)
 end)
 
 local function CreateEnviromentLight(vehicle, light, offset, color)
-    -- local boneIndex = GetEntityBoneIndexByName(vehicle, 'extra_' .. extra)
     local boneIndex = GetEntityBoneIndexByName(vehicle, light.type .. '_' .. tostring(light.name))
+    if boneIndex == -1 then
+        return
+    end
+
     local coords = GetWorldPositionOfEntityBone(vehicle, boneIndex)
     local position = coords + offset
 
@@ -322,11 +480,16 @@ local function CreateEnviromentLight(vehicle, light, offset, color)
     local intensity = Config.EnvironmentalLights.Intensity or 1.0
     local shadow = 1.0
 
-    if string.lower(color) == 'blue' then rgb = { 0, 0, 255 }
-    elseif string.lower(color) == 'red' then rgb = { 255, 0, 0 }
-    elseif string.lower(color) == 'green' then rgb = { 0, 255, 0 }
-    elseif string.lower(color) == 'white' then rgb = { 255, 255, 255 }
-    elseif string.lower(color) == 'amber' then rgb = { 255, 194, 0}
+    if string.lower(color) == 'blue' then
+        rgb = { 0, 0, 255 }
+    elseif string.lower(color) == 'red' then
+        rgb = { 255, 0, 0 }
+    elseif string.lower(color) == 'green' then
+        rgb = { 0, 255, 0 }
+    elseif string.lower(color) == 'white' then
+        rgb = { 255, 255, 255 }
+    elseif string.lower(color) == 'amber' then
+        rgb = { 255, 194, 0 }
     end
 
     -- draw the light
@@ -340,35 +503,43 @@ end
 Citizen.CreateThread(function()
     while true do
         -- wait for VCF data to load
-        while not kjxmlData do Citizen.Wait(0) end
+        while not kjxmlData do
+            Citizen.Wait(0)
+        end
 
         for vehicle, _ in pairs(kjEnabledVehicles) do
-            local data = kjxmlData[GetCarHash(vehicle)]
+            if vehicle and vehicle ~= 0 then
+                local data = GetVehicleVCFData(vehicle)
 
-            if data then
-                for extra, info in pairs(data.extras) do
-                    if IsVehicleExtraTurnedOn(vehicle, extra) and info.env_light then
-                        local offset = vector3(info.env_pos.x, info.env_pos.y, info.env_pos.z)
-                        local light = {
-                            type = 'extra',
-                            name = extra
-                        }
+                if data then
+                    if data.extras then
+                        for extra, info in pairs(data.extras) do
+                            if IsVehicleExtraTurnedOn(vehicle, extra) and info.env_light then
+                                local offset = vector3(info.env_pos.x, info.env_pos.y, info.env_pos.z)
+                                local light = {
+                                    type = 'extra',
+                                    name = extra
+                                }
 
-                        -- flash on walls
-                        CreateEnviromentLight(vehicle, light, offset, info.env_color)
+                                -- flash on walls
+                                CreateEnviromentLight(vehicle, light, offset, info.env_color)
+                            end
+                        end
                     end
-                end
 
-                for misc, info in pairs(data.miscs) do
-                    if IsVehicleMiscTurnedOn(vehicle, misc) and info.env_light then
-                        local offset = vector3(info.env_pos.x, info.env_pos.y, info.env_pos.z)
-                        local light = {
-                            type = 'misc',
-                            name = ConvertMiscIdToName(misc)
-                        }
+                    if data.miscs then
+                        for misc, info in pairs(data.miscs) do
+                            if IsVehicleMiscTurnedOn(vehicle, misc) and info.env_light then
+                                local offset = vector3(info.env_pos.x, info.env_pos.y, info.env_pos.z)
+                                local light = {
+                                    type = 'misc',
+                                    name = ConvertMiscIdToName(misc)
+                                }
 
-                        -- flash on walls
-                        CreateEnviromentLight(vehicle, light, offset, info.env_color)
+                                -- flash on walls
+                                CreateEnviromentLight(vehicle, light, offset, info.env_color)
+                            end
+                        end
                     end
                 end
             end
