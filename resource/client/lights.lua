@@ -36,7 +36,6 @@ local function ToggleExtra(vehicle, extra, toggle)
     end
 
     local value = toggle and 0 or 1
-
     SetVehicleAutoRepairDisabled(vehicle, true)
     SetVehicleExtra(vehicle, extra, value)
 end
@@ -48,16 +47,11 @@ local function ToggleMisc(vehicle, misc, toggle)
     end
 
     SetVehicleModKit(vehicle, 0)
-    -- TODO: respect custom wheel setting
     SetVehicleMod(vehicle, misc, toggle, false)
 end
 
 local function GetVehicleVCFData(vehicle)
-    if not IsValidVehicle(vehicle) then
-        return nil
-    end
-
-    if not kjxmlData then
+    if not IsValidVehicle(vehicle) or not kjxmlData then
         return nil
     end
 
@@ -69,17 +63,72 @@ local function GetVehicleVCFData(vehicle)
     return kjxmlData[carHash]
 end
 
-local function SetLightStage(vehicle, stage, toggle)
+local function EnsureELSVehicle(vehicle)
     if not IsValidVehicle(vehicle) then
-        RemoveVehicleFromTable(vehicle)
-        return
+        return nil
     end
 
     if kjEnabledVehicles[vehicle] == nil then
         AddVehicleToTable(vehicle)
     end
 
-    local ELSvehicle = kjEnabledVehicles[vehicle]
+    return kjEnabledVehicles[vehicle]
+end
+
+local function ApplySirenStateToVehicle(vehicle, status)
+    if not IsValidVehicle(vehicle) then
+        RemoveVehicleFromTable(vehicle)
+        return
+    end
+
+    local vehicleData = GetVehicleVCFData(vehicle)
+    if not vehicleData or not vehicleData.sounds then
+        return
+    end
+
+    local ELSvehicle = EnsureELSVehicle(vehicle)
+    if not ELSvehicle then
+        return
+    end
+
+    local sounds = vehicleData.sounds
+
+    ELSvehicle.siren = status
+
+    if ELSvehicle.sound ~= nil then
+        StopSound(ELSvehicle.sound)
+        ReleaseSoundId(ELSvehicle.sound)
+        ELSvehicle.sound = nil
+    end
+
+    SetVehicleHasMutedSirens(vehicle, true)
+
+    local statuses = {1, 2, 3, 4}
+    if TableHasValue(statuses, status) then
+        local tone = sounds['srnTone' .. status]
+        if not tone then
+            return
+        end
+
+        ELSvehicle.sound = GetSoundId()
+        PlaySoundFromEntity(
+            ELSvehicle.sound,
+            tone.audioString,
+            vehicle,
+            tone.soundSet or 0,
+            0,
+            0
+        )
+    end
+end
+
+local function SetLightStage(vehicle, stage, toggle)
+    if not IsValidVehicle(vehicle) then
+        RemoveVehicleFromTable(vehicle)
+        return
+    end
+
+    local ELSvehicle = EnsureELSVehicle(vehicle)
     if not ELSvehicle then
         return
     end
@@ -95,7 +144,6 @@ local function SetLightStage(vehicle, stage, toggle)
 
     local patternKey = ConvertStageToPattern(stage)
     local patternData = VCFdata.patterns and VCFdata.patterns[patternKey]
-
     if not patternData then
         print(('[MISS-ELS] SetLightStage: no pattern data for stage %s on %s'):format(
             tostring(stage),
@@ -111,6 +159,7 @@ local function SetLightStage(vehicle, stage, toggle)
 
     if patternData.isEmergency then
         SetVehicleSiren(vehicle, toggle)
+        SetVehicleHasMutedSirens(vehicle, true)
     end
 
     if patternData.flashHighBeam then
@@ -137,7 +186,6 @@ local function SetLightStage(vehicle, stage, toggle)
                 if ELSvehicle.highBeamEnabled then
                     SetVehicleFullbeam(vehicle, true)
                     SetVehicleLightMultiplier(vehicle, Config.HighBeamIntensity or 5.0)
-
                     Wait(500)
 
                     if not IsValidVehicle(vehicle) then
@@ -148,7 +196,6 @@ local function SetLightStage(vehicle, stage, toggle)
 
                     SetVehicleFullbeam(vehicle, false)
                     SetVehicleLightMultiplier(vehicle, 1.0)
-
                     Wait(500)
                 end
 
@@ -163,8 +210,6 @@ local function SetLightStage(vehicle, stage, toggle)
                     SetVehicleFullbeam(vehicle, true)
                 end
             end
-
-            Wait(0)
         end)
     end
 
@@ -197,11 +242,9 @@ local function SetLightStage(vehicle, stage, toggle)
             end
 
             SetVehicleEngineOn(vehicle, true, true, false)
+            SetVehicleHasMutedSirens(vehicle, true)
 
-            local lastFlash = {
-                extras = {},
-                miscs = {},
-            }
+            local lastFlash = { extras = {}, miscs = {} }
 
             for _, flash in ipairs(patternData) do
                 if not IsValidVehicle(vehicle) then
@@ -212,24 +255,14 @@ local function SetLightStage(vehicle, stage, toggle)
 
                 if ELSvehicle[stage] then
                     for _, extra in ipairs(flash['extras']) do
-                        if not IsValidVehicle(vehicle) then
-                            ELSvehicle[stage] = false
-                            RemoveVehicleFromTable(vehicle)
-                            break
-                        end
-
+                        if not IsValidVehicle(vehicle) then break end
                         SetVehicleAutoRepairDisabled(vehicle, true)
                         ToggleExtra(vehicle, extra, true)
                         table.insert(lastFlash.extras, extra)
                     end
 
                     for _, misc in ipairs(flash['miscs']) do
-                        if not IsValidVehicle(vehicle) then
-                            ELSvehicle[stage] = false
-                            RemoveVehicleFromTable(vehicle)
-                            break
-                        end
-
+                        if not IsValidVehicle(vehicle) then break end
                         ToggleMisc(vehicle, misc, true)
                         table.insert(lastFlash.miscs, misc)
                     end
@@ -257,8 +290,6 @@ local function SetLightStage(vehicle, stage, toggle)
 
             Citizen.Wait(0)
         end
-
-        Wait(0)
     end)
 end
 
@@ -290,7 +321,6 @@ AddEventHandler('kjELS:resetExtras', function(vehicle)
     end
 
     local model = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle))
-
     if not SetContains(kjxmlData, model) then
         CancelEvent()
         return
@@ -323,7 +353,6 @@ AddEventHandler('kjELS:resetMiscs', function(vehicle)
     end
 
     local model = GetDisplayNameFromVehicleModel(GetEntityModel(vehicle))
-
     if not SetContains(kjxmlData, model) then
         CancelEvent()
         return
@@ -349,10 +378,7 @@ AddEventHandler('kjELS:toggleLights', function(vehicle, stage, toggle)
         return
     end
 
-    if kjEnabledVehicles[vehicle] == nil then
-        AddVehicleToTable(vehicle)
-    end
-
+    EnsureELSVehicle(vehicle)
     SetLightStage(vehicle, stage, toggle)
 end)
 
@@ -364,24 +390,16 @@ AddEventHandler('kjELS:updateHorn', function(netId, status)
     end
 
     local vehicleData = GetVehicleVCFData(vehicle)
-    if not vehicleData then
+    if not vehicleData or not vehicleData.sounds or not vehicleData.sounds.mainHorn then
         return
     end
 
-    local sounds = vehicleData.sounds
-    if not sounds or not sounds.mainHorn then
-        return
-    end
-
-    if kjEnabledVehicles[vehicle] == nil then
-        AddVehicleToTable(vehicle)
-    end
-
-    local ELSvehicle = kjEnabledVehicles[vehicle]
+    local ELSvehicle = EnsureELSVehicle(vehicle)
     if not ELSvehicle then
         return
     end
 
+    local sounds = vehicleData.sounds
     ELSvehicle.horn = status
 
     if ELSvehicle.sound_id ~= nil then
@@ -392,82 +410,34 @@ AddEventHandler('kjELS:updateHorn', function(netId, status)
 
     if status then
         ELSvehicle.sound_id = GetSoundId()
-
         PlaySoundFromEntity(
             ELSvehicle.sound_id,
             sounds.mainHorn.audioString,
             vehicle,
             sounds.mainHorn.soundSet or 0,
-            0, 0
+            0,
+            0
         )
     end
 end)
 
 RegisterNetEvent('kjELS:updateSiren')
 AddEventHandler('kjELS:updateSiren', function(netId, status)
-    if not netId then
-        print('[MISS-ELS] updateSiren: missing netId')
+    local vehicle = GetVehicleFromNetId(netId)
+    if not vehicle then
         return
     end
 
-    local vehicle = NetToVeh(netId)
-    if not vehicle or vehicle == 0 or not DoesEntityExist(vehicle) then
-        print(('[MISS-ELS] updateSiren: vehicle not in scope for netId %s'):format(tostring(netId)))
+    ApplySirenStateToVehicle(vehicle, status)
+end)
+
+local stateBagHandler = AddStateBagChangeHandler('kjelsSiren', nil, function(bagName, key, value, _unused, replicated)
+    local vehicle = GetEntityFromStateBagName(bagName)
+    if vehicle == 0 or not IsValidVehicle(vehicle) then
         return
     end
 
-    local vehicleData = GetVehicleVCFData(vehicle)
-    if not vehicleData then
-        print(('[MISS-ELS] updateSiren: no VCF data for vehicle %s'):format(tostring(vehicle)))
-        return
-    end
-
-    local sounds = vehicleData.sounds
-    if not sounds then
-        print(('[MISS-ELS] updateSiren: no sounds table for vehicle %s'):format(tostring(vehicle)))
-        return
-    end
-
-    if kjEnabledVehicles[vehicle] == nil then
-        AddVehicleToTable(vehicle)
-    end
-
-    local ELSvehicle = kjEnabledVehicles[vehicle]
-    if not ELSvehicle then
-        print(('[MISS-ELS] updateSiren: no ELS state for vehicle %s'):format(tostring(vehicle)))
-        return
-    end
-
-    ELSvehicle.siren = status
-
-    if ELSvehicle.sound ~= nil then
-        StopSound(ELSvehicle.sound)
-        ReleaseSoundId(ELSvehicle.sound)
-        ELSvehicle.sound = nil
-    end
-
-    local statuses = {1, 2, 3, 4}
-
-    if TableHasValue(statuses, status) then
-        local tone = sounds['srnTone' .. status]
-        if not tone then
-            print(('[MISS-ELS] updateSiren: missing srnTone%s'):format(tostring(status)))
-            return
-        end
-
-        ELSvehicle.sound = GetSoundId()
-
-        PlaySoundFromEntity(
-            ELSvehicle.sound,
-            tone.audioString,
-            vehicle,
-            tone.soundSet or 0,
-            0,
-            0
-        )
-    end
-
-    SetVehicleHasMutedSirens(vehicle, true)
+    ApplySirenStateToVehicle(vehicle, value or 0)
 end)
 
 RegisterNetEvent('kjELS:updateIndicators')
@@ -538,18 +508,15 @@ Citizen.CreateThread(function()
             if not IsValidVehicle(vehicle) then
                 RemoveVehicleFromTable(vehicle)
             else
-                local data = GetVehicleVCFData(vehicle)
+                SetVehicleHasMutedSirens(vehicle, true)
 
+                local data = GetVehicleVCFData(vehicle)
                 if data then
                     if data.extras then
                         for extra, info in pairs(data.extras) do
-                            if IsValidVehicle(vehicle) and IsVehicleExtraTurnedOn(vehicle, extra) and info.env_light then
+                            if IsVehicleExtraTurnedOn(vehicle, extra) and info.env_light then
                                 local offset = vector3(info.env_pos.x, info.env_pos.y, info.env_pos.z)
-                                local light = {
-                                    type = 'extra',
-                                    name = extra
-                                }
-
+                                local light = { type = 'extra', name = extra }
                                 CreateEnviromentLight(vehicle, light, offset, info.env_color)
                             end
                         end
@@ -557,13 +524,9 @@ Citizen.CreateThread(function()
 
                     if data.miscs then
                         for misc, info in pairs(data.miscs) do
-                            if IsValidVehicle(vehicle) and IsVehicleMiscTurnedOn(vehicle, misc) and info.env_light then
+                            if IsVehicleMiscTurnedOn(vehicle, misc) and info.env_light then
                                 local offset = vector3(info.env_pos.x, info.env_pos.y, info.env_pos.z)
-                                local light = {
-                                    type = 'misc',
-                                    name = ConvertMiscIdToName(misc)
-                                }
-
+                                local light = { type = 'misc', name = ConvertMiscIdToName(misc) }
                                 CreateEnviromentLight(vehicle, light, offset, info.env_color)
                             end
                         end
